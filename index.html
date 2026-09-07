@@ -5,28 +5,57 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ইউনিভার্সিটি বাস ট্র্যাকিং</title>
   
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #f8fafc; }
-    #map { height: 100vh; width: 100vw; z-index: 1; }
+    body { font-family: 'Segoe UI', Roboto, sans-serif; background: #e5e7eb; }
+    
+    #map { height: 100vh; width: 100vw; }
 
     #info-card {
-      position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
-      z-index: 1000; background: rgba(255, 255, 255, 0.95);
-      backdrop-filter: blur(8px); padding: 12px 20px; border-radius: 24px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-      display: flex; align-items: center; gap: 16px;
-      width: 90%; max-width: 440px; justify-content: space-between;
-      border: 1px solid rgba(226, 232, 240, 0.8);
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      padding: 10px 18px;
+      border-radius: 30px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.15);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      width: 90%;
+      max-width: 420px;
+      justify-content: space-between;
+      border: 1px solid rgba(229, 231, 235, 0.8);
     }
-    .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
-    .status-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-    .online { background-color: #22c55e; box-shadow: 0 0 8px #22c55e; }
-    .offline { background-color: #ef4444; }
-    .stat-pill { background: #f1f5f9; padding: 4px 10px; border-radius: 12px; font-size: 13px; font-weight: 700; color: #0f172a; }
-    .user-pulse { width: 14px; height: 14px; background: #2563eb; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(37, 99, 235, 0.8); }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .online { background-color: #16a34a; box-shadow: 0 0 8px #16a34a; }
+    .offline { background-color: #dc2626; }
+
+    .stat-pill {
+      background: #f1f5f9;
+      padding: 3px 8px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #1e293b;
+    }
   </style>
 </head>
 <body>
@@ -48,9 +77,12 @@
 
   <div id="map"></div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <!-- Google Maps SDK (আপনার API Key যুক্ত করা হয়েছে) -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDxp2og-Jn6gIctpj80MfKWZaxvpLBEru0&callback=initMap" async defer></script>
 
   <script>
     firebase.initializeApp({
@@ -58,93 +90,100 @@
     });
     const db = firebase.database();
 
-    const defaultCoords = [24.8949, 91.8687];
-    const map = L.map('map', { zoomControl: false }).setView(defaultCoords, 14);
-    L.control.zoom({ position: 'bottomright' }).addTo(map);
-
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap, © CARTO'
-    }).addTo(map);
-
-    const busIcon = L.icon({
-      iconUrl: 'https://cdn-icons-png.flaticon.com/512/1048/1048314.png',
-      iconSize: [40, 40],
-      iconAnchor: [20, 20],
-      popupAnchor: [0, -20]
-    });
-
-    const userIcon = L.divIcon({
-      className: 'user-pulse-container',
-      html: '<div class="user-pulse"></div>',
-      iconSize: [14, 14],
-      iconAnchor: [7, 7]
-    });
-
-    let busMarker = null;
-    let userMarker = null;
+    let map, busMarker, userMarker;
     let userCoords = null;
     let lastEtaCheck = 0;
 
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition((pos) => {
-        userCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        userMarker = L.marker([userCoords.lat, userCoords.lng], { icon: userIcon })
-          .addTo(map)
-          .bindPopup("আপনার অবস্থান");
+    function initMap() {
+      const defaultCenter = { lat: 24.8949, lng: 91.8687 };
+      map = new google.maps.Map(document.getElementById("map"), {
+        zoom: 15,
+        center: defaultCenter,
+        disableDefaultUI: true,
+        zoomControl: true
       });
+
+      busMarker = new google.maps.Marker({
+        position: defaultCenter,
+        map: map,
+        title: "ইউনিভার্সিটি বাস",
+        icon: {
+          url: "https://maps.google.com/mapfiles/kml/shapes/bus.png",
+          scaledSize: new google.maps.Size(38, 38)
+        }
+      });
+
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition((pos) => {
+          userCoords = new google.maps.LatLng(pos.coords.latitude, pos.coords.longitude);
+          userMarker = new google.maps.Marker({
+            position: userCoords,
+            map: map,
+            title: "আপনার অবস্থান",
+            icon: {
+              path: google.maps.SymbolPath.CIRCLE,
+              scale: 7,
+              fillColor: "#2563eb",
+              fillOpacity: 1,
+              strokeWeight: 2,
+              strokeColor: "#ffffff"
+            }
+          });
+        });
+      }
+
+      trackBus();
     }
 
-    async function updateRouteDetails(busLat, busLng) {
+    function updateRouteDetails(busPos) {
       if (!userCoords) return;
+
       const now = Date.now();
       if (now - lastEtaCheck < 10000) return;
       lastEtaCheck = now;
 
-      const url = `https://router.project-osrm.org/route/v1/driving/${busLng},${busLat};${userCoords.lng},${userCoords.lat}?overview=false`;
-
-      try {
-        const response = await fetch(url);
-        const resData = await response.json();
-        if (resData.routes && resData.routes.length > 0) {
-          const route = resData.routes[0];
-          document.getElementById('distance').innerText = `${(route.distance / 1000).toFixed(1)} কিমি`;
-          document.getElementById('eta').innerText = `~${Math.ceil(route.duration / 60)} মি.`;
+      const service = new google.maps.DistanceMatrixService();
+      service.getDistanceMatrix({
+        origins: [busPos],
+        destinations: [userCoords],
+        travelMode: google.maps.TravelMode.DRIVING,
+      }, (response, status) => {
+        if (status === "OK") {
+          const result = response.rows[0].elements[0];
+          if (result.status === "OK") {
+            document.getElementById("distance").innerText = result.distance.text;
+            document.getElementById("eta").innerText = `~${result.duration.text}`;
+          }
         }
-      } catch (err) {
-        console.error("ETA Error:", err);
-      }
+      });
     }
 
-    db.ref('buses/bus_01').on('value', (snapshot) => {
-      const data = snapshot.val();
-      const dot = document.getElementById('status-indicator');
-      const text = document.getElementById('status-text');
+    function trackBus() {
+      db.ref("buses/bus_01").on("value", (snapshot) => {
+        const data = snapshot.val();
+        const dot = document.getElementById("status-indicator");
+        const text = document.getElementById("status-text");
 
-      if (!data || data.status !== "ACTIVE") {
-        dot.className = "status-dot offline";
-        text.innerText = "বাস অফলাইন";
-        text.style.color = "#64748b";
-        document.getElementById('distance').innerText = "--";
-        document.getElementById('eta').innerText = "--";
-        return;
-      }
+        if (!data || data.status !== "ACTIVE") {
+          dot.className = "status-dot offline";
+          text.innerText = "বাস অফলাইন";
+          text.style.color = "#64748b";
+          document.getElementById("distance").innerText = "--";
+          document.getElementById("eta").innerText = "--";
+          return;
+        }
 
-      dot.className = "status-dot online";
-      text.innerText = "বাস লাইভ";
-      text.style.color = "#15803d";
+        dot.className = "status-dot online";
+        text.innerText = "বাস লাইভ";
+        text.style.color = "#16a34a";
 
-      const currentBusPos = [data.lat, data.lng];
+        const busPos = new google.maps.LatLng(data.lat, data.lng);
+        busMarker.setPosition(busPos);
+        map.panTo(busPos);
 
-      if (!busMarker) {
-        busMarker = L.marker(currentBusPos, { icon: busIcon }).addTo(map);
-        map.setView(currentBusPos, 15);
-      } else {
-        busMarker.setLatLng(currentBusPos);
-      }
-
-      updateRouteDetails(data.lat, data.lng);
-    });
+        updateRouteDetails(busPos);
+      });
+    }
   </script>
 </body>
 </html>
