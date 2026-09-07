@@ -22,8 +22,16 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Install Dependencies
-        run: flutter pub get
+      # অ্যান্ড্রয়েডের প্রয়োজনীয় মিসিং ফাইল অটো তৈরি করবে
+      - name: Generate Android Skeleton
+        run: |
+          flutter create . --platforms=android --org com.example
+          flutter pub get
+
+      # পারমিশন নিশ্চিত করা
+      - name: Set Permissions
+        run: |
+          sed -i '/<application/i <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n<uses-permission android:name="android.permission.INTERNET" />\n<uses-permission android:name="android.permission.WAKE_LOCK" />' android/app/src/main/AndroidManifest.xml
 
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons
