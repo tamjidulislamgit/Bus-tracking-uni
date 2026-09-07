@@ -25,7 +25,6 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
   final String firebaseUrl = "https://uni-bus-tracking-f0535-default-rtdb.firebaseio.com";
   String busId = "bus_01";
   bool isTripActive = false;
-  String info = "বাসে বা বাটনে ট্যাপ করে ট্রিপ শুরু করুন";
   StreamSubscription<Position>? gpsListener;
 
   late AnimationController _engineController;
@@ -33,7 +32,6 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
-    // ইঞ্জিন চালু থাকলে বাসের মৃদু কাঁপুনির অ্যানিমেশন
     _engineController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 100),
@@ -47,7 +45,6 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
     super.dispose();
   }
 
-  // ইঞ্জিন স্টার্টের হ্যাপটিক ফিডব্যাক (শব্দ ও ভাইব্রেশন সিমুলেশন)
   void _playEngineStartVibe() async {
     SystemSound.play(SystemSoundType.click);
     HapticFeedback.heavyImpact();
@@ -64,17 +61,12 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
 
   Future<bool> getPermission() async {
     bool enabled = await Geolocator.isLocationServiceEnabled();
-    if (!enabled) {
-      setState(() => info = "ফোনের GPS/Location চালু করুন");
-      return false;
-    }
+    if (!enabled) return false;
+
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        setState(() => info = "লোকেশন পারমিশন ছাড়া অ্যাপ চলবে না");
-        return false;
-      }
+      if (permission == LocationPermission.denied) return false;
     }
     return true;
   }
@@ -91,14 +83,7 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
           "updatedAt": DateTime.now().millisecondsSinceEpoch,
         }),
       );
-      if (mounted) {
-        setState(() => info = "লাইভ ট্র্যাকিং সক্রিয়\nগতি: ${(pos.speed * 3.6).round()} কিমি/ঘণ্টা");
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => info = "ইন্টারনেট সমস্যা!");
-      }
-    }
+    } catch (_) {}
   }
 
   void startTrip() async {
@@ -128,7 +113,6 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
 
     setState(() {
       isTripActive = true;
-      info = "বাস চলমান... লাইট অন";
     });
   }
 
@@ -143,7 +127,6 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
 
     setState(() {
       isTripActive = false;
-      info = "ট্রিপ শেষ (ইঞ্জিন ও লাইট বন্ধ)";
     });
   }
 
@@ -153,7 +136,7 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
       backgroundColor: const Color(0xFF0D0F12),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -161,18 +144,17 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
                 isTripActive ? "বাস চালু আছে" : "ইউনিভার্সিটি বাস",
                 style: TextStyle(
                   color: isTripActive ? Colors.greenAccent : Colors.white,
-                  fontSize: 24,
+                  fontSize: 26,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 1.2,
                 ),
               ),
-              const SizedBox(height: 30),
+              const SizedBox(height: 40),
 
-              // বাসের বডি এবং হেডলাইট সেকশন (পিওর ফ্ল্যাটার কোড)
+              // বাস এবং হেডলাইট এনিমেশন
               AnimatedBuilder(
                 animation: _engineController,
                 builder: (context, child) {
-                  // ইঞ্জিন ভাইব্রেশন এফেক্ট
                   double offset = isTripActive ? sin(_engineController.value * pi * 2) * 1.5 : 0;
                   return Transform.translate(
                     offset: Offset(0, offset),
@@ -183,7 +165,6 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
                   onTap: isTripActive ? stopTrip : startTrip,
                   child: Column(
                     children: [
-                      // বাসের বডি
                       Container(
                         width: 170,
                         height: 190,
@@ -210,7 +191,6 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
                         child: Column(
                           children: [
                             const SizedBox(height: 12),
-                            // রুট বোর্ড
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                               decoration: BoxDecoration(
@@ -227,7 +207,6 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
                               ),
                             ),
                             const SizedBox(height: 10),
-                            // উইন্ডশিল্ড (সামনের বড় গ্লাস)
                             Container(
                               width: 140,
                               height: 65,
@@ -238,7 +217,6 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
                               child: const Icon(Icons.person, color: Colors.white24, size: 28),
                             ),
                             const Spacer(),
-                            // গ্রিল ও নাম্বার প্লেট
                             Container(
                               width: 60,
                               height: 12,
@@ -248,7 +226,6 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
                               ),
                             ),
                             const SizedBox(height: 12),
-                            // দুটি হেডলাইট
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 16),
                               child: Row(
@@ -264,7 +241,7 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
                         ),
                       ),
 
-                      // হেডলাইট থেকে বের হওয়া আলোর বিম (Light Beam)
+                      // লাইট বিম
                       AnimatedOpacity(
                         duration: const Duration(milliseconds: 300),
                         opacity: isTripActive ? 1.0 : 0.0,
@@ -282,9 +259,9 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
                 ),
               ),
 
-              const SizedBox(height: 25),
+              const SizedBox(height: 35),
 
-              // স্টার্ট / এন্ড বাটন
+              // স্টার্ট / এন্ড বাটন (নিচে কোনো টেক্সট থাকবে না)
               SizedBox(
                 width: double.infinity,
                 height: 65,
@@ -308,12 +285,6 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
-              Text(
-                info,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, fontSize: 14),
-              ),
             ],
           ),
         ),
@@ -321,7 +292,6 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
     );
   }
 
-  // বাসের গোল হেডলাইট উইজেট
   Widget _buildHeadlight(bool active) {
     return Container(
       width: 26,
@@ -342,7 +312,6 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
     );
   }
 
-  // সামনের দিকে ছড়ানো আলোর বিম
   Widget _buildLightBeam() {
     return Container(
       width: 38,
