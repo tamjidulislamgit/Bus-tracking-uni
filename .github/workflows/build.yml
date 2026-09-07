@@ -22,16 +22,15 @@ jobs:
         with:
           channel: 'stable'
 
-      # অ্যান্ড্রয়েডের প্রয়োজনীয় মিসিং ফাইল অটো তৈরি করবে
       - name: Generate Android Skeleton
         run: |
           flutter create . --platforms=android --org com.example
           flutter pub get
 
-      # পারমিশন নিশ্চিত করা
+      # ব্যাকগ্রাউন্ড সার্ভিস ও নোটিফিকেশন পারমিশন ইনজেক্ট করা
       - name: Set Permissions
         run: |
-          sed -i '/<application/i <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n<uses-permission android:name="android.permission.INTERNET" />\n<uses-permission android:name="android.permission.WAKE_LOCK" />' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n<uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />\n<uses-permission android:name="android.permission.INTERNET" />\n<uses-permission android:name="android.permission.WAKE_LOCK" />\n<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />\n<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' android/app/src/main/AndroidManifest.xml
 
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons
@@ -41,4 +40,3 @@ jobs:
         with:
           name: Driver-App-Release
           path: build/app/outputs/flutter-apk/app-release.apk
-          
