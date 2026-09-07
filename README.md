@@ -24,7 +24,7 @@ To embed the live tracker into any university portal or webpage, use this respon
 ```html
 <div style="width: 100%; height: 650px; max-width: 1200px; margin: 0 auto; border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0;">
   <iframe 
-    src="[https://tamjidulislamgit.github.io/Bus-tracking-uni/](https://tamjidulislamgit.github.io/Bus-tracking-uni/)" 
+    src="https://<your-username>.github.io/<repo-name>/" 
     title="University Bus Live Tracker"
     width="100%" 
     height="100%" 
