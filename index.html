@@ -11,7 +11,6 @@
     
     #map { height: 100vh; width: 100vw; }
 
-    /* ফ্লোটিং স্ট্যাটাস কার্ড */
     #info-card {
       position: absolute;
       top: 16px;
@@ -82,7 +81,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
-  <!-- Google Maps SDK (শুধুমাত্র ম্যাপ প্রদর্শনের জন্য) -->
+  <!-- Google Maps SDK (আপনার API Key যুক্ত করা হয়েছে) -->
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDxp2og-Jn6gIctpj80MfKWZaxvpLBEru0&callback=initMap" async defer></script>
 
   <script>
@@ -116,7 +115,7 @@
 
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition((pos) => {
-          userCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          userCoords = new google.maps.LatLng(pos.coords.latitude, pos.coords.longitude);
           userMarker = new google.maps.Marker({
             position: userCoords,
             map: map,
@@ -136,32 +135,27 @@
       trackBus();
     }
 
-    // হাইব্রিড সমাধান: ব্যাকগ্রাউন্ডে ফ্রি OSRM দিয়ে দূরত্ব ও সময় নির্ণয়
-    async function updateRouteDetails(busLat, busLng) {
+    function updateRouteDetails(busPos) {
       if (!userCoords) return;
 
       const now = Date.now();
-      // ৩০ সেকেন্ডের ব্যবধান (Interval: 30,000 ms)
-      if (now - lastEtaCheck < 30000) return;
+      if (now - lastEtaCheck < 10000) return;
       lastEtaCheck = now;
 
-      // OSRM পাবলিক রাউটিং কল (সম্পূর্ণ ফ্রি)
-      const url = `https://router.project-osrm.org/route/v1/driving/${busLng},${busLat};${userCoords.lng},${userCoords.lat}?overview=false`;
-
-      try {
-        const response = await fetch(url);
-        const resData = await response.json();
-        if (resData.routes && resData.routes.length > 0) {
-          const route = resData.routes[0];
-          const distKm = (route.distance / 1000).toFixed(1);
-          const durationMin = Math.ceil(route.duration / 60);
-
-          document.getElementById('distance').innerText = `${distKm} কিমি`;
-          document.getElementById('eta').innerText = `~${durationMin} মি.`;
+      const service = new google.maps.DistanceMatrixService();
+      service.getDistanceMatrix({
+        origins: [busPos],
+        destinations: [userCoords],
+        travelMode: google.maps.TravelMode.DRIVING,
+      }, (response, status) => {
+        if (status === "OK") {
+          const result = response.rows[0].elements[0];
+          if (result.status === "OK") {
+            document.getElementById("distance").innerText = result.distance.text;
+            document.getElementById("eta").innerText = `~${result.duration.text}`;
+          }
         }
-      } catch (err) {
-        console.error("OSRM ফেচ ব্যর্থ হয়েছে:", err);
-      }
+      });
     }
 
     function trackBus() {
@@ -187,8 +181,7 @@
         busMarker.setPosition(busPos);
         map.panTo(busPos);
 
-        // OSRM কল করা হচ্ছে বাসের বর্তমান lat, lng পাঠিয়ে
-        updateRouteDetails(data.lat, data.lng);
+        updateRouteDetails(busPos);
       });
     }
   </script>
