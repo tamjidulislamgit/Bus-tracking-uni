@@ -20,7 +20,6 @@ class DriverScreen extends StatefulWidget {
 }
 
 class _DriverScreenState extends State<DriverScreen> {
-  // আপনার দেওয়া ফায়ারবেস ডেটাবেজ লিংক
   final String firebaseUrl = "https://uni-bus-tracking-f0535-default-rtdb.firebaseio.com";
 
   String busId = "bus_01";
@@ -57,9 +56,13 @@ class _DriverScreenState extends State<DriverScreen> {
           "updatedAt": DateTime.now().millisecondsSinceEpoch,
         }),
       );
-      setState(() => info = "লাইভ লোকেশন পাঠানো হচ্ছে...");
+      if (mounted) {
+        setState(() => info = "লাইভ লোকেশন পাঠানো হচ্ছে...\nগতি: ${(pos.speed * 3.6).round()} কিমি/ঘণ্টা");
+      }
     } catch (e) {
-      setState(() => info = "ইন্টারনেট সংযোগ সমস্যা!");
+      if (mounted) {
+        setState(() => info = "ইন্টারনেট সংযোগ সমস্যা!");
+      }
     }
   }
 
@@ -67,14 +70,23 @@ class _DriverScreenState extends State<DriverScreen> {
     bool ok = await getPermission();
     if (!ok) return;
 
-    WakelockPlus.enable(); // ড্রাইভারের স্ক্রিন অফ হবে না
+    WakelockPlus.enable();
 
-    const settings = LocationSettings(
+    // অ্যান্ড্রয়েড ব্যাকগ্রাউন্ড সার্ভিস ও পার্মানেন্ট নোটিফিকেশন কনফিগারেশন
+    final AndroidSettings androidSettings = AndroidSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 10, // প্রতি ১০ মিটার পর পর লাইভ আপডেট পাঠাবে
+      distanceFilter: 10, // প্রতি ১০ মিটার পর পর আপডেট
+      forceLocationManager: true,
+      intervalDuration: const Duration(seconds: 5),
+      foregroundNotificationConfig: const ForegroundNotificationConfig(
+        notificationTitle: "ইউনিভার্সিটি বাস ট্র্যাকার",
+        notificationText: "বাসের লাইভ লোকেশন ব্যাকগ্রাউন্ডে শেয়ার হচ্ছে...",
+        enableWakeLock: true,
+        setOngoing: true, // নোটিফিকেশন সোয়াইপ করে ডিলিট করা যাবে না
+      ),
     );
 
-    gpsListener = Geolocator.getPositionStream(locationSettings: settings).listen((pos) {
+    gpsListener = Geolocator.getPositionStream(locationSettings: androidSettings).listen((pos) {
       updateFirebase(pos);
     });
 
