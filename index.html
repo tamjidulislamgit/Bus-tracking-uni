@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ইউনিভার্সিটি বাস ট্র্যাকিং</title>
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #f8fafc; }
+    
+    #map { height: 100vh; width: 100vw; z-index: 1; }
+
+    /* আধুনিক ফ্লোটিং ইনফো প্যানেল */
+    #info-card {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      padding: 12px 20px;
+      border-radius: 24px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      width: 90%;
+      max-width: 440px;
+      justify-content: space-between;
+      border: 1px solid rgba(226, 232, 240, 0.8);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .online { background-color: #22c55e; box-shadow: 0 0 8px #22c55e; }
+    .offline { background-color: #ef4444; }
+
+    .stat-pill {
+      background: #f1f5f9;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    /* শিক্ষার্থীর লোকেশন ব্লু পালস */
+    .user-pulse {
+      width: 14px;
+      height: 14px;
+      background: #2563eb;
+      border: 2px solid white;
+      border-radius: 50%;
+      box-shadow: 0 0 10px rgba(37, 99, 235, 0.8);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ফ্লোটিং স্ট্যাটাস বার -->
+  <div id="info-card">
+    <div class="badge">
+      <span id="status-indicator" class="status-dot offline"></span>
+      <span id="status-text" style="color: #64748b;">বাস অফলাইন</span>
+    </div>
+    <div class="badge">
+      <span style="color: #64748b;">দূরত্ব:</span>
+      <span id="distance" class="stat-pill">--</span>
+    </div>
+    <div class="badge">
+      <span style="color: #64748b;">সময়:</span>
+      <span id="eta" class="stat-pill">--</span>
+    </div>
+  </div>
+
+  <div id="map"></div>
+
+  <!-- লাইব্রেরি স্ক্রিপ্টসমূহ -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <script>
+    // ১. আপনার ফায়ারবেস ডেটাবেজ কনফিগারেশন
+    firebase.initializeApp({
+      databaseURL: "https://uni-bus-tracking-f0535-default-rtdb.firebaseio.com"
+    });
+    const db = firebase.database();
+
+    // ২. ম্যাপ ইনিশিয়ালাইজেশন
+    const defaultCoords = [24.8949, 91.8687]; // প্রাথমিক ভিউ
+    const map = L.map('map', { zoomControl: false }).setView(defaultCoords, 14);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    // CartoDB Voyager টাইলস (গুগল ম্যাপসের মতো আধুনিক ও পরিষ্কার লুক)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap, © CARTO'
+    }).addTo(map);
+
+    // কাস্টম বাসের আইকন
+    const busIcon = L.icon({
+      iconUrl: 'https://cdn-icons-png.flaticon.com/512/1048/1048314.png',
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
+      popupAnchor: [0, -20]
+    });
+
+    // ইউজারের ব্লু ডট আইকন
+    const userIcon = L.divIcon({
+      className: 'user-pulse-container',
+      html: '<div class="user-pulse"></div>',
+      iconSize: [14, 14],
+      iconAnchor: [7, 7]
+    });
+
+    let busMarker = null;
+    let userMarker = null;
+    let userCoords = null;
+    let lastEtaCheck = 0;
+
+    // ৩. শিক্ষার্থীর অবস্থান সংগ্রহ
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition((pos) => {
+        userCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        userMarker = L.marker([userCoords.lat, userCoords.lng], { icon: userIcon })
+          .addTo(map)
+          .bindPopup("আপনার অবস্থান");
+      });
+    }
+
+    // ৪. OSRM দিয়ে সড়কপথের আসল দূরত্ব ও সময় নির্ণয়
+    async function updateRouteDetails(busLat, busLng) {
+      if (!userCoords) return;
+
+      // প্রতি ১০ সেকেন্ডের আগে অতিরিক্ত এপিআই রিকোয়েস্ট থামানোর ফিল্টার
+      const now = Date.now();
+      if (now - lastEtaCheck < 10000) return;
+      lastEtaCheck = now;
+
+      const url = `https://router.project-osrm.org/route/v1/driving/${busLng},${busLat};${userCoords.lng},${userCoords.lat}?overview=false`;
+
+      try {
+        const response = await fetch(url);
+        const resData = await response.json();
+        if (resData.routes && resData.routes.length > 0) {
+          const route = resData.routes[0];
+          const distKm = (route.distance / 1000).toFixed(1);
+          const durationMin = Math.ceil(route.duration / 60);
+
+          document.getElementById('distance').innerText = `${distKm} কিমি`;
+          document.getElementById('eta').innerText = `~${durationMin} মি.`;
+        }
+      } catch (err) {
+        console.error("ETA ফেচ ব্যর্থ হয়েছে:", err);
+      }
+    }
+
+    // ৫. ফায়ারবেস লাইভ লিসেনার
+    db.ref('buses/bus_01').on('value', (snapshot) => {
+      const data = snapshot.val();
+      const dot = document.getElementById('status-indicator');
+      const text = document.getElementById('status-text');
+
+      if (!data || data.status !== "ACTIVE") {
+        dot.className = "status-dot offline";
+        text.innerText = "বাস অফলাইন";
+        text.style.color = "#64748b";
+        document.getElementById('distance').innerText = "--";
+        document.getElementById('eta').innerText = "--";
+        return;
+      }
+
+      dot.className = "status-dot online";
+      text.innerText = "বাস লাইভ";
+      text.style.color = "#15803d";
+
+      const currentBusPos = [data.lat, data.lng];
+
+      if (!busMarker) {
+        busMarker = L.marker(currentBusPos, { icon: busIcon })
+          .addTo(map)
+          .bindPopup("ইউনিভার্সিটি বাস");
+        map.setView(currentBusPos, 15);
+      } else {
+        busMarker.setLatLng(currentBusPos);
+      }
+
+      updateRouteDetails(data.lat, data.lng);
+    });
+  </script>
+</body>
+</html>
