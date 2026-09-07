@@ -8,31 +8,42 @@ import 'package:http/http.dart' as http;
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 void main() {
-  runApp(const MaterialApp(
-    home: DriverScreen(),
-    debugShowCheckedModeBanner: false,
-  ));
+  runApp(const DriverTrackingApp());
 }
 
-class DriverScreen extends StatefulWidget {
-  const DriverScreen({super.key});
+class DriverTrackingApp extends StatelessWidget {
+  const DriverTrackingApp({super.key});
 
   @override
-  State<DriverScreen> createState() => _DriverScreenState();
+  Widget build(BuildContext context) {
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: DriverDashboardScreen(),
+    );
+  }
 }
 
-class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderStateMixin {
-  final String firebaseUrl = "https://uni-bus-tracking-f0535-default-rtdb.firebaseio.com";
-  String busId = "bus_01";
-  bool isTripActive = false;
-  StreamSubscription<Position>? gpsListener;
+class DriverDashboardScreen extends StatefulWidget {
+  const DriverDashboardScreen({super.key});
 
-  late AnimationController _engineController;
+  @override
+  State<DriverDashboardScreen> createState() => _DriverDashboardScreenState();
+}
+
+class _DriverDashboardScreenState extends State<DriverDashboardScreen>
+    with SingleTickerProviderStateMixin {
+  static const String _firebaseBaseUrl =
+      "https://uni-bus-tracking-f0535-default-rtdb.firebaseio.com";
+  static const String _busId = "bus_01";
+
+  bool _isTripActive = false;
+  StreamSubscription<Position>? _positionStreamSub;
+  late final AnimationController _vibrationController;
 
   @override
   void initState() {
     super.initState();
-    _engineController = AnimationController(
+    _vibrationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 100),
     );
@@ -40,12 +51,12 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
 
   @override
   void dispose() {
-    _engineController.dispose();
-    gpsListener?.cancel();
+    _vibrationController.dispose();
+    _positionStreamSub?.cancel();
     super.dispose();
   }
 
-  void _playEngineStartVibe() async {
+  Future<void> _triggerEngineFeedback() async {
     SystemSound.play(SystemSoundType.click);
     HapticFeedback.heavyImpact();
     await Future.delayed(const Duration(milliseconds: 120));
@@ -54,28 +65,28 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
     HapticFeedback.vibrate();
   }
 
-  void _playEngineStopVibe() {
+  void _triggerStopFeedback() {
     SystemSound.play(SystemSoundType.click);
     HapticFeedback.mediumImpact();
   }
 
-  Future<bool> getPermission() async {
-    bool enabled = await Geolocator.isLocationServiceEnabled();
-    if (!enabled) return false;
+  Future<bool> _handleLocationPermissions() async {
+    final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return false;
 
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return false;
     }
-    return true;
+    return permission != LocationPermission.deniedForever;
   }
 
-  void updateFirebase(Position pos) async {
-    final url = Uri.parse("$firebaseUrl/buses/$busId.json");
+  Future<void> _pushCoordinates(Position pos) async {
+    final endpoint = Uri.parse("$_firebaseBaseUrl/buses/$_busId.json");
     try {
       await http.patch(
-        url,
+        endpoint,
         body: jsonEncode({
           "lat": pos.latitude,
           "lng": pos.longitude,
@@ -83,16 +94,18 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
           "updatedAt": DateTime.now().millisecondsSinceEpoch,
         }),
       );
-    } catch (_) {}
+    } catch (_) {
+      // Network drops are ignored; stream handles subsequent coordinates
+    }
   }
 
-  void startTrip() async {
-    bool ok = await getPermission();
-    if (!ok) return;
+  Future<void> _startTracking() async {
+    final hasPermission = await _handleLocationPermissions();
+    if (!hasPermission) return;
 
-    _playEngineStartVibe();
-    _engineController.repeat(reverse: true);
-    WakelockPlus.enable();
+    _triggerEngineFeedback();
+    _vibrationController.repeat(reverse: true);
+    await WakelockPlus.enable();
 
     final AndroidSettings androidSettings = AndroidSettings(
       accuracy: LocationAccuracy.high,
@@ -107,27 +120,28 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
       ),
     );
 
-    gpsListener = Geolocator.getPositionStream(locationSettings: androidSettings).listen((pos) {
-      updateFirebase(pos);
-    });
+    _positionStreamSub = Geolocator.getPositionStream(
+      locationSettings: androidSettings,
+    ).listen(_pushCoordinates);
 
-    setState(() {
-      isTripActive = true;
-    });
+    setState(() => _isTripActive = true);
   }
 
-  void stopTrip() async {
-    _playEngineStopVibe();
-    _engineController.stop();
-    await gpsListener?.cancel();
-    WakelockPlus.disable();
+  Future<void> _stopTracking() async {
+    _triggerStopFeedback();
+    _vibrationController.stop();
+    await _positionStreamSub?.cancel();
+    await WakelockPlus.disable();
 
-    final url = Uri.parse("$firebaseUrl/buses/$busId.json");
-    await http.patch(url, body: jsonEncode({"status": "INACTIVE"}));
+    final endpoint = Uri.parse("$_firebaseBaseUrl/buses/$_busId.json");
+    try {
+      await http.patch(
+        endpoint,
+        body: jsonEncode({"status": "INACTIVE"}),
+      );
+    } catch (_) {}
 
-    setState(() {
-      isTripActive = false;
-    });
+    setState(() => _isTripActive = false);
   }
 
   @override
@@ -141,9 +155,9 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                isTripActive ? "বাস চালু আছে" : "ইউনিভার্সিটি বাস",
+                _isTripActive ? "বাস চালু আছে" : "ইউনিভার্সিটি বাস",
                 style: TextStyle(
-                  color: isTripActive ? Colors.greenAccent : Colors.white,
+                  color: _isTripActive ? Colors.greenAccent : Colors.white,
                   fontSize: 26,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 1.2,
@@ -151,18 +165,20 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
               ),
               const SizedBox(height: 40),
 
-              // বাস এবং হেডলাইট এনিমেশন
+              // Bus illustration with engine jitter
               AnimatedBuilder(
-                animation: _engineController,
+                animation: _vibrationController,
                 builder: (context, child) {
-                  double offset = isTripActive ? sin(_engineController.value * pi * 2) * 1.5 : 0;
+                  final double jitter = _isTripActive
+                      ? sin(_vibrationController.value * pi * 2) * 1.5
+                      : 0.0;
                   return Transform.translate(
-                    offset: Offset(0, offset),
+                    offset: Offset(0, jitter),
                     child: child,
                   );
                 },
                 child: GestureDetector(
-                  onTap: isTripActive ? stopTrip : startTrip,
+                  onTap: _isTripActive ? _stopTracking : _startTracking,
                   child: Column(
                     children: [
                       Container(
@@ -177,7 +193,9 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
                             bottomRight: Radius.circular(15),
                           ),
                           border: Border.all(
-                            color: isTripActive ? Colors.greenAccent.withOpacity(0.5) : Colors.white24,
+                            color: _isTripActive
+                                ? Colors.greenAccent.withOpacity(0.5)
+                                : Colors.white24,
                             width: 2,
                           ),
                           boxShadow: [
@@ -185,22 +203,29 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
                               color: Colors.black.withOpacity(0.7),
                               blurRadius: 15,
                               offset: const Offset(0, 8),
-                            )
+                            ),
                           ],
                         ),
                         child: Column(
                           children: [
                             const SizedBox(height: 12),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
-                                color: isTripActive ? Colors.green.shade900 : Colors.black45,
+                                color: _isTripActive
+                                    ? Colors.green.shade900
+                                    : Colors.black45,
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 "CAMPUS SPECIAL",
                                 style: TextStyle(
-                                  color: isTripActive ? Colors.greenAccent : Colors.white54,
+                                  color: _isTripActive
+                                      ? Colors.greenAccent
+                                      : Colors.white54,
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -214,7 +239,11 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
                                 color: const Color(0xFF2A364F),
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: const Icon(Icons.person, color: Colors.white24, size: 28),
+                              child: const Icon(
+                                Icons.person,
+                                color: Colors.white24,
+                                size: 28,
+                              ),
                             ),
                             const Spacer(),
                             Container(
@@ -227,12 +256,14 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
                             ),
                             const SizedBox(height: 12),
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
                               child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
-                                  _buildHeadlight(isTripActive),
-                                  _buildHeadlight(isTripActive),
+                                  _buildHeadlight(_isTripActive),
+                                  _buildHeadlight(_isTripActive),
                                 ],
                               ),
                             ),
@@ -241,10 +272,10 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
                         ),
                       ),
 
-                      // লাইট বিম
+                      // Headlight beams
                       AnimatedOpacity(
                         duration: const Duration(milliseconds: 300),
-                        opacity: isTripActive ? 1.0 : 0.0,
+                        opacity: _isTripActive ? 1.0 : 0.0,
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -261,25 +292,36 @@ class _DriverScreenState extends State<DriverScreen> with SingleTickerProviderSt
 
               const SizedBox(height: 35),
 
-              // স্টার্ট / এন্ড বাটন (নিচে কোনো টেক্সট থাকবে না)
+              // Action Trigger Button
               SizedBox(
                 width: double.infinity,
                 height: 65,
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: isTripActive ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    backgroundColor: _isTripActive
+                        ? const Color(0xFFDC2626)
+                        : const Color(0xFF16A34A),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                     elevation: 6,
                   ),
-                  onPressed: isTripActive ? stopTrip : startTrip,
+                  onPressed: _isTripActive ? _stopTracking : _startTracking,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(isTripActive ? Icons.power_settings_new : Icons.play_arrow, size: 28),
+                      Icon(
+                        _isTripActive ? Icons.power_settings_new : Icons.play_arrow,
+                        size: 28,
+                      ),
                       const SizedBox(width: 10),
                       Text(
-                        isTripActive ? "END TRIP" : "START TRIP",
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                        _isTripActive ? "END TRIP" : "START TRIP",
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
                       ),
                     ],
                   ),
